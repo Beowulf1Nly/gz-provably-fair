@@ -1,0 +1,9 @@
+{
+  "name": "gz-provably-fair",
+  "version": "1.0.0",
+  "description": "Ground Zero case odds and provably-fair verifier",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" }
+}

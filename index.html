@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground Zero provably-fair verifier</title>
+<style>
+  :root { --bg: #f6f6f4; --fg: #1d1d1b; --muted: #66665f; --card: #fff; --line: #d9d9d3; --accent: #b3261e; --ok: #1b7a3a; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #ececE8; --muted: #9a9a92; --card: #1f1f1d; --line: #35352f; --accent: #ff6b5e; --ok: #55c27a; --bad: #ff6b5e; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: 14px ui-monospace, Consolas, monospace; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  button { margin-top: 14px; padding: 9px 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+  button.alt { background: transparent; color: var(--fg); border: 1px solid var(--line); margin-left: 8px; }
+  dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 13px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+  .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
+  .item { font: 600 18px system-ui, sans-serif; margin: 4px 0 10px; }
+  small { color: var(--muted); }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ground Zero provably-fair verifier</h1>
+  <p class="lead">Recompute any case open in your browser. Nothing you type leaves this page (the only request is for <code>odds.json</code>, and for the live API if you press the compare button).</p>
+
+  <div class="card">
+    <label for="seed">Server seed (revealed after you rotate your seed)</label>
+    <input id="seed" autocomplete="off" spellcheck="false" placeholder="64 hex characters">
+    <label for="hash">Server seed hash you were shown before opening (optional)</label>
+    <input id="hash" autocomplete="off" spellcheck="false" placeholder="64 hex characters">
+    <div class="row">
+      <div><label for="client">Client seed</label><input id="client" autocomplete="off" spellcheck="false"></div>
+      <div><label for="nonce">Nonce</label><input id="nonce" inputmode="numeric" value="0"></div>
+    </div>
+    <label for="case">Case</label>
+    <select id="case"></select>
+    <button id="go" type="button">Verify</button>
+  </div>
+
+  <div class="card" id="out" hidden>
+    <div class="item" id="item"></div>
+    <div id="commit"></div>
+    <dl id="steps"></dl>
+  </div>
+
+  <div class="card">
+    <strong>Odds file</strong> <small id="oddsState">loading...</small>
+    <dl id="oddsInfo" style="margin-top:10px"></dl>
+    <label for="oddsText">odds.json (loaded automatically; paste a different version to check an older open)</label>
+    <textarea id="oddsText" spellcheck="false"></textarea>
+    <button id="useText" type="button" class="alt" style="margin-left:0">Use pasted odds</button>
+    <button id="live" type="button" class="alt">Compare with the live API</button>
+    <div id="liveOut" style="margin-top:8px"></div>
+  </div>
+
+  <p><small>How it works: <code>HMAC-SHA256(key = serverSeed, message = clientSeed:nonce:caseId)</code>, first 13 hex characters = a 52-bit number n, <code>bucket = floor(n * 100000 / 2^52)</code>, the winner is the first item (in odds.json order) whose running total of weights is above the bucket. Full write-up in the README.</small></p>
+</main>
+<script>
+'use strict';
+var LIVE_ODDS = 'https://gzapi.groundzerodayz.co/fair/odds';
+var SCALE = 100000, enc = new TextEncoder();
+var $ = function (id) { return document.getElementById(id); };
+var odds = null, oddsHash = '';
+
+function hex(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join(''); }
+function sha256(text) { return crypto.subtle.digest('SHA-256', enc.encode(text)).then(hex); }
+function hmac(key, text) {
+  return crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    .then(function (k) { return crypto.subtle.sign('HMAC', k, enc.encode(text)); }).then(hex);
+}
+function row(dl, k, v) { var dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dl.appendChild(dt); dl.appendChild(dd); }
+
+function setOdds(text) {
+  return sha256(text).then(function (h) {
+    var doc = JSON.parse(text);
+    if (!doc || !Array.isArray(doc.cases)) throw new Error('not an odds file');
+    odds = doc; oddsHash = h;
+    $('oddsText').value = text;
+    var sel = $('case'), keep = sel.value;
+    sel.textContent = '';
+    doc.cases.forEach(function (c) { var o = document.createElement('option'); o.value = c.id; o.textContent = c.name + ' (' + c.id + ')'; sel.appendChild(o); });
+    if (keep) sel.value = keep;
+    $('oddsState').textContent = 'loaded';
+    var dl = $('oddsInfo'); dl.textContent = '';
+    row(dl, 'SHA-256', h); row(dl, 'cases', String(doc.cases.length)); row(dl, 'format', String(doc.format));
+  });
+}
+
+function loadOdds() {
+  return fetch('odds.json', { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(setOdds).catch(function (e) { $('oddsState').textContent = 'could not load odds.json (' + e.message + '); paste it below'; });
+}
+
+function verify() {
+  var seed = $('seed').value.trim(), want = $('hash').value.trim().toLowerCase(), client = $('client').value, nonceText = $('nonce').value.trim(), caseId = $('case').value;
+  var out = $('out'), steps = $('steps'), commitEl = $('commit');
+  out.hidden = false; steps.textContent = ''; commitEl.textContent = ''; $('item').textContent = '';
+  if (!odds) { $('item').textContent = 'Load the odds file first.'; return; }
+  if (!seed || !client || !/^\d{1,15}$/.test(nonceText)) { $('item').textContent = 'Enter the server seed, client seed and a whole-number nonce.'; return; }
+  var nonce = Number(nonceText), message = client + ':' + nonce + ':' + caseId, c = odds.cases.filter(function (k) { return k.id === caseId; })[0];
+  return Promise.all([sha256(seed), hmac(seed, message)]).then(function (r) {
+    var seedHash = r[0], h = r[1], n = parseInt(h.slice(0, 13), 16);
+    var bucket = Number((BigInt(n) * BigInt(SCALE)) >> 52n), total = 0, from = 0, idx = -1;
+    for (var i = 0; i < c.items.length; i++) { from = total; total += c.items[i].weight; if (total > bucket) { idx = i; break; } }
+    if (idx < 0) { $('item').textContent = 'The weights in this odds file do not add up to ' + SCALE + '.'; return; }
+    var it = c.items[idx];
+    $('item').textContent = it.name + ' (' + it.tier + ')';
+    if (want) {
+      var el = document.createElement('span');
+      el.className = seedHash === want ? 'ok' : 'bad';
+      el.textContent = seedHash === want ? 'Commitment OK: this seed hashes to the hash you were shown.' : 'MISMATCH: this seed does not hash to the hash you were shown.';
+      commitEl.appendChild(el);
+    }
+    row(steps, 'SHA-256(serverSeed)', seedHash);
+    row(steps, 'message', message);
+    row(steps, 'HMAC-SHA256', h);
+    row(steps, 'n (first 13 hex)', String(n));
+    row(steps, 'u = n / 2^52', String(n / Math.pow(2, 52)));
+    row(steps, 'bucket', bucket + '  = floor(n * ' + SCALE + ' / 2^52)');
+    row(steps, 'item', '#' + (idx + 1) + ' ' + it.id + ', bucket range ' + from + '..' + (from + it.weight - 1));
+    row(steps, 'odds file SHA-256', oddsHash);
+  });
+}
+
+function compareLive() {
+  var el = $('liveOut'); el.textContent = 'checking...';
+  fetch(LIVE_ODDS, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(sha256).then(function (h) {
+      el.textContent = '';
+      var s = document.createElement('span');
+      s.className = h === oddsHash ? 'ok' : 'bad';
+      s.textContent = h === oddsHash ? 'The live API serves exactly this odds file.' : 'The live API serves a different odds file (' + h.slice(0, 12) + '...). Odds change over time; older opens record the hash they used.';
+      el.appendChild(s);
+    }).catch(function (e) { el.textContent = 'Could not reach the live API: ' + e.message; });
+}
+
+$('go').addEventListener('click', verify);
+$('live').addEventListener('click', compareLive);
+$('useText').addEventListener('click', function () { setOdds($('oddsText').value).catch(function (e) { $('oddsState').textContent = 'bad odds file: ' + e.message; }); });
+var q = new URLSearchParams(location.search);
+['seed', 'hash', 'client', 'nonce'].forEach(function (k) { if (q.get(k)) $(k).value = q.get(k); });
+loadOdds().then(function () { if (q.get('case')) $('case').value = q.get('case'); if (q.get('seed') && q.get('client')) verify(); });
+</script>
+</body>
+</html>
