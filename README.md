@@ -11,7 +11,7 @@ Every case opening on the Ground Zero store is decided by a commit-reveal scheme
 Odds file SHA-256 (of the bytes of `odds.json`):
 
 <!-- odds-hash -->
-`d869d0f3d307487636f61f847ef04cd39992453e687ef3545a1404b2d17724bc`
+`b363b19e5e0108ac02ae376e6a7e0ede5dd6ecdfcc98eeee6cf9e487728849af`
 <!-- /odds-hash -->
 
 Every open the server records stores this hash, so you can tell which version of the odds it used. Older versions are in this repo's git history and at `GET /fair/odds/<sha256>` on the API. Changing any odds, item or item order changes the hash.
@@ -20,10 +20,10 @@ Every open the server records stores this hash, so you can tell which version of
 | Case | Items | Legendary | Epic | Rare | Common |
 |---|---:|---:|---:|---:|---:|
 | Halloween Case (`limited`) | 9 | 17.500 % | 37.500 % | 45.000 % | 0.000 % |
-| Black Site Case (`elite`) | 92 | 13.000 % | 33.170 % | 53.830 % | 0.000 % |
-| Marksman Case (`marksman`) | 62 | 5.000 % | 16.666 % | 28.334 % | 50.000 % |
-| Vanguard Case (`vanguard`) | 96 | 5.000 % | 15.000 % | 30.000 % | 50.000 % |
-| Shadow Case (`shadow`) | 86 | 5.000 % | 15.000 % | 30.000 % | 50.000 % |
+| Black Site Case (`elite`) | 92 | 9.067 % | 33.447 % | 57.486 % | 0.000 % |
+| Marksman Case (`marksman`) | 62 | 3.467 % | 15.242 % | 30.484 % | 50.807 % |
+| Vanguard Case (`vanguard`) | 96 | 3.467 % | 15.242 % | 30.484 % | 50.807 % |
+| Shadow Case (`shadow`) | 86 | 3.467 % | 15.242 % | 30.484 % | 50.807 % |
 <!-- /odds-table -->
 
 ## How it works
