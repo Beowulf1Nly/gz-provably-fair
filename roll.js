@@ -31,3 +31,15 @@ export function roll(serverSeed, clientSeed, nonce, caseId, items) {
   const n = rollInt(serverSeed, clientSeed, nonce, caseId), bucket = bucketOf(n), index = pickIndex(items, bucket);
   return { n, u: n / TWO52, bucket, index, item: items[index] };
 }
+
+// Reroll (trade-up) of skins of `tier`, same seeds and nonce counter as opens:
+//   hash         h = HMAC-SHA256(key = serverSeed, msg = `${clientSeed}:${nonce}:reroll-${tier}`)
+//   tier         b = bucket of the first 13 hex chars (as above); b < upWeight = a skin of the next tier up, else one of the same tier
+//   skin         n2 = the next 13 hex chars (14th to 26th) as an integer, index = floor(n2 * count / 2^52) in exact integer arithmetic,
+//                into that tier's published pool (reroll-odds.json, in its order) without the skins the player already owns (listed in the record)
+// Returns { n, n2, u, bucket, up, index }.
+export function rerollRoll(serverSeed, clientSeed, nonce, tier, upWeight, upCount, sameCount) {
+  const h = hmacHex(serverSeed, clientSeed, nonce, 'reroll-' + tier), n = parseInt(h.slice(0, 13), 16), n2 = parseInt(h.slice(13, 26), 16);
+  const bucket = bucketOf(n), up = bucket < upWeight, count = up ? upCount : sameCount;
+  return { n, n2, u: n / TWO52, bucket, up, index: Number((BigInt(n2) * BigInt(count)) >> 52n) };
+}
