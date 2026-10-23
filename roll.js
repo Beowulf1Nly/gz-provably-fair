@@ -38,6 +38,21 @@ export function roll(serverSeed, clientSeed, nonce, caseId, items) {
 //   skin         n2 = the next 13 hex chars (14th to 26th) as an integer, index = floor(n2 * count / 2^52) in exact integer arithmetic,
 //                into that tier's published pool (reroll-odds.json, in its order) without the skins the player already owns (listed in the record)
 // Returns { n, n2, u, bucket, up, index }.
+//
+// Same-family reroll (reroll-odds format 2, Hunter 2026-10-23): before the skin, the result's family (knife, sniper, rifle...) is picked:
+//   up           decided by the bucket of n exactly as above (it does not depend on the family)
+//   weights      how many of the inputs are in each family, families in the published order, only families with skins at the result tier
+//   family       n3 = the 27th to 39th hex chars as an integer, x = floor(n3 * total weight / 2^52) in exact integer arithmetic,
+//                the first family whose running total of weight is greater than x
+//   skin         index = floor(n2 * count / 2^52) into that family's pool at the result tier (rerollRoll with that family's counts)
+// Returns { n3, index } (index into weights).
+export function familyPick(serverSeed, clientSeed, nonce, tier, weights) {
+  const h = hmacHex(serverSeed, clientSeed, nonce, 'reroll-' + tier), n3 = parseInt(h.slice(26, 39), 16);
+  const total = weights.reduce((a, w) => a + w, 0), x = Number((BigInt(n3) * BigInt(total)) >> 52n);
+  let run = 0;
+  for (let index = 0; index < weights.length; index++) { run += weights[index]; if (run > x) return { n3, index }; }
+  throw new Error('no family weight');
+}
 export function rerollRoll(serverSeed, clientSeed, nonce, tier, upWeight, upCount, sameCount) {
   const h = hmacHex(serverSeed, clientSeed, nonce, 'reroll-' + tier), n = parseInt(h.slice(0, 13), 16), n2 = parseInt(h.slice(13, 26), 16);
   const bucket = bucketOf(n), up = bucket < upWeight, count = up ? upCount : sameCount;
